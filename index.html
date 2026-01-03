@@ -24,10 +24,12 @@
 <button onclick="deleteSelected()">Delete selected</button>
 <button onclick="suggestMechanism()">Suggest mechanism</button>
 
-
 <div id="reactionCanvas"></div>
 
 <script>
+/* ---------- Config ---------- */
+const BACKEND_URL = "https://chem-backend-kskc.onrender.com";
+
 /* ---------- Kekule ---------- */
 const editor = new Kekule.Editor.Composer(
   document.getElementById("editor")
@@ -41,14 +43,11 @@ let selectedArrow = null;
 let arrowMode = false;
 let arrowStart = null;
 
-/* ---------- Undo / Redo ---------- */
 let undoStack = [];
 let redoStack = [];
 
 function saveState() {
-  undoStack.push(
-    document.getElementById("reactionCanvas").innerHTML
-  );
+  undoStack.push(document.getElementById("reactionCanvas").innerHTML);
   redoStack = [];
 }
 
@@ -59,12 +58,11 @@ function restoreState(state) {
 
 /* ---------- RDKit render ---------- */
 async function render(smiles, imgEl) {
-  const res = await fetch("https://chem-backend-kskc.onrender.com/render", {
-   method: "POST",
-   headers: { "Content-Type": "application/json" },
-   body: JSON.stringify({ smiles })
-   });
-
+  const res = await fetch(`${BACKEND_URL}/render`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ smiles })
+  });
 
   if (!res.ok) {
     alert("Render failed");
@@ -74,23 +72,15 @@ async function render(smiles, imgEl) {
   const data = await res.json();
   imgEl.src = "data:image/png;base64," + data.image;
 
-  // -------- Level 1 data --------
   imgEl.dataset.atoms = JSON.stringify(data.atoms);
   imgEl.dataset.bonds = JSON.stringify(data.bonds);
   imgEl.dataset.smiles = smiles;
-
-
-  console.log("Atoms:", data.atoms);
-  console.log("Bonds:", data.bonds);
 }
-
 
 /* ---------- Selection ---------- */
 function selectImg(img) {
-  document.querySelectorAll(".step img")
-    .forEach(i => i.classList.remove("selected"));
-  document.querySelectorAll(".mechanism path")
-    .forEach(p => p.classList.remove("selected"));
+  document.querySelectorAll(".step img").forEach(i => i.classList.remove("selected"));
+  document.querySelectorAll(".mechanism path").forEach(p => p.classList.remove("selected"));
 
   img.classList.add("selected");
   selectedImg = img;
@@ -98,10 +88,8 @@ function selectImg(img) {
 }
 
 function selectArrow(path) {
-  document.querySelectorAll(".step img")
-    .forEach(i => i.classList.remove("selected"));
-  document.querySelectorAll(".mechanism path")
-    .forEach(p => p.classList.remove("selected"));
+  document.querySelectorAll(".step img").forEach(i => i.classList.remove("selected"));
+  document.querySelectorAll(".mechanism path").forEach(p => p.classList.remove("selected"));
 
   path.classList.add("selected");
   selectedArrow = path;
@@ -110,8 +98,21 @@ function selectArrow(path) {
 
 /* ---------- Send molecule ---------- */
 function sendToCanvas() {
+  if (!selectedImg) {
+    alert("Click an image slot first");
+    return;
+  }
+
+  const mol = editor.getChemObj();
+  if (!mol) {
+    alert("Draw a molecule first");
+    return;
+  }
+
+  saveState();
   const smiles = Kekule.IO.saveFormatData(mol, "smi");
   render(smiles, selectedImg);
+}
 
 /* ---------- Add step ---------- */
 function addStep() {
@@ -132,7 +133,6 @@ function addStep() {
       <input placeholder="Solvent">
     </div>
     <img>
-
     <svg class="mechanism" width="700" height="250">
       <defs>
         <marker id="arrowhead" markerWidth="10" markerHeight="7"
@@ -151,7 +151,6 @@ function addStep() {
 function enableArrowMode() {
   arrowMode = true;
   arrowStart = null;
-  
 }
 
 function stepClickHandler(e) {
@@ -159,7 +158,6 @@ function stepClickHandler(e) {
 
   const svg = e.currentTarget.querySelector("svg.mechanism");
   const rect = svg.getBoundingClientRect();
-
   const x = e.clientX - rect.left;
   const y = e.clientY - rect.top;
 
@@ -177,19 +175,12 @@ function drawArrow(svg, start, end) {
   const cx = (start.x + end.x) / 2;
   const cy = Math.min(start.y, end.y) - 40;
 
-  const path = document.createElementNS(
-    "http://www.w3.org/2000/svg", "path"
-  );
-
-  path.setAttribute(
-    "d",
-    `M ${start.x} ${start.y} Q ${cx} ${cy} ${end.x} ${end.y}`
-  );
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  path.setAttribute("d", `M ${start.x} ${start.y} Q ${cx} ${cy} ${end.x} ${end.y}`);
   path.setAttribute("fill", "none");
   path.setAttribute("stroke", "black");
   path.setAttribute("stroke-width", "2");
   path.setAttribute("marker-end", "url(#arrowhead)");
-
   path.onclick = () => selectArrow(path);
   svg.appendChild(path);
 }
@@ -206,93 +197,45 @@ function deleteSelected() {
 /* ---------- Undo / Redo ---------- */
 function undo() {
   if (!undoStack.length) return;
-  redoStack.push(reactionCanvas.innerHTML);
+  redoStack.push(document.getElementById("reactionCanvas").innerHTML);
   restoreState(undoStack.pop());
 }
 
 function redo() {
   if (!redoStack.length) return;
-  undoStack.push(reactionCanvas.innerHTML);
+  undoStack.push(document.getElementById("reactionCanvas").innerHTML);
   restoreState(redoStack.pop());
 }
 
 /* ---------- Reattach handlers ---------- */
 function reattachHandlers() {
-  document.querySelectorAll(".step").forEach(step => {
-    step.onclick = stepClickHandler;
-  });
-
-  document.querySelectorAll(".step img").forEach(img => {
-    img.onclick = () => selectImg(img);
-  });
-
-  document.querySelectorAll(".mechanism path").forEach(path => {
-    path.onclick = () => selectArrow(path);
-  });
+  document.querySelectorAll(".step").forEach(step => step.onclick = stepClickHandler);
+  document.querySelectorAll(".step img").forEach(img => img.onclick = () => selectImg(img));
+  document.querySelectorAll(".mechanism path").forEach(path => path.onclick = () => selectArrow(path));
 }
 
-/* ---------- Init ---------- */
-addStep();
-function drawArrow(svg, start, end) {
-  const path = document.createElementNS(
-    "http://www.w3.org/2000/svg", "path"
-  );
-
-  path.setAttribute(
-    "d",
-    `M ${start.x} ${start.y} Q ${(start.x+end.x)/2} ${start.y-40} ${end.x} ${end.y}`
-  );
-
-  path.dataset.start = JSON.stringify(start);
-  path.dataset.end = JSON.stringify(end);
-
-  path.setAttribute("stroke", "black");
-  path.setAttribute("fill", "none");
-  path.setAttribute("marker-end", "url(#arrowhead)");
-
-  path.onclick = () => selectArrow(path);
-  svg.appendChild(path);
-}
-
-function getCurrentReactionData(step) {
-  return {
-    reactant: step.querySelector("img").dataset.smiles,
-    reagent: step.querySelector("input[placeholder='Reagent']").value,
-    solvent: step.querySelector("input[placeholder='Solvent']").value
-  };
-}
-
-function drawSuggestedArrow(step, arrow) {
-  const svg = step.querySelector("svg.mechanism");
-
-  // TEMP mapping (center-left to center-right)
-  const start = { x: 200, y: 140 };
-  const end   = { x: 350, y: 140 };
-
-  drawArrow(svg, start, end);
-}
-
+/* ---------- Mechanism suggestions ---------- */
 async function suggestMechanism() {
-  const step = document.querySelector(".step"); // first step for now
+  const step = document.querySelector(".step");
   if (!step) {
     alert("No reaction step found");
     return;
   }
 
-  const data = getCurrentReactionData(step);
+  const data = {
+    reactant: step.querySelector("img").dataset.smiles,
+    reagent: step.querySelector("input[placeholder='Reagent']").value
+  };
 
   if (!data.reactant) {
     alert("No reactant SMILES found. Send molecule first.");
     return;
   }
 
-  const res = await fetch("http://localhost:8000/suggest", {
+  const res = await fetch(`${BACKEND_URL}/suggest`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      reactant: data.reactant,
-      reagent: data.reagent
-    })
+    body: JSON.stringify(data)
   });
 
   if (!res.ok) {
@@ -301,24 +244,18 @@ async function suggestMechanism() {
   }
 
   const result = await res.json();
-  console.log("Suggested arrows:", result.arrows);
-
-  result.arrows.forEach(arrow => {
-    drawSuggestedArrow(step, arrow);
-  });
+  result.arrows.forEach(arrow => drawSuggestedArrow(step, arrow));
 }
 
- fetch("https://chem-backend-kskc.onrender.com/analyze", {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({ smiles: smilesFromKekule })
-})
-.then(res => res.json())
-.then(data => {
-  console.log(data); // use this to highlight atoms / add mechanism steps
-});
+function drawSuggestedArrow(step, arrow) {
+  const svg = step.querySelector("svg.mechanism");
+  const start = { x: 200, y: 140 }; // TEMP
+  const end = { x: 350, y: 140 };   // TEMP
+  drawArrow(svg, start, end);
+}
 
-
+/* ---------- Init ---------- */
+addStep();
 
 </script>
 
