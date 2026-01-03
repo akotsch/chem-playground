@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Chem Playground</title>
+
+<link rel="stylesheet"
+ href="https://unpkg.com/kekule/dist/themes/default/kekule.css">
+<link rel="stylesheet" href="styles.css">
+
+<script src="https://unpkg.com/kekule/dist/kekule.js"></script>
+</head>
+
+<body>
+
+<h2>Draw molecule</h2>
+<div id="editor"></div>
+
+<button onclick="sendToCanvas()">Send to canvas</button>
+<button onclick="addStep()">Add new step</button>
+<button onclick="enableArrowMode()">Add arrow</button>
+<button class="icon-btn undo-btn" onclick="undo()"></button>
+<button class="icon-btn redo-btn" onclick="redo()"></button>
+<button onclick="deleteSelected()">Delete selected</button>
+<button onclick="suggestMechanism()">Suggest mechanism</button>
+
+
+<div id="reactionCanvas"></div>
+
+<script>
+/* ---------- Kekule ---------- */
+const editor = new Kekule.Editor.Composer(
+  document.getElementById("editor")
+);
+editor.setEnableCreateNewDoc(true);
+editor.setEnableLoadNewFile(true);
+
+/* ---------- State ---------- */
+let selectedImg = null;
+let selectedArrow = null;
+let arrowMode = false;
+let arrowStart = null;
+
+/* ---------- Undo / Redo ---------- */
+let undoStack = [];
+let redoStack = [];
+
+function saveState() {
+  undoStack.push(
+    document.getElementById("reactionCanvas").innerHTML
+  );
+  redoStack = [];
+}
+
+function restoreState(state) {
+  document.getElementById("reactionCanvas").innerHTML = state;
+  reattachHandlers();
+}
+
+/* ---------- RDKit render ---------- */
+async function render(smiles, imgEl) {
+  const res = await fetch("http://localhost:8000/render", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ smiles })
+  });
+
+  if (!res.ok) {
+    alert("Render failed");
+    return;
+  }
+
+  const data = await res.json();
+  imgEl.src = "data:image/png;base64," + data.image;
+
+  // -------- Level 1 data --------
+  imgEl.dataset.atoms = JSON.stringify(data.atoms);
+  imgEl.dataset.bonds = JSON.stringify(data.bonds);
+  imgEl.dataset.smiles = smiles;
+
+
+  console.log("Atoms:", data.atoms);
+  console.log("Bonds:", data.bonds);
+}
+
+
+/* ---------- Selection ---------- */
+function selectImg(img) {
+  document.querySelectorAll(".step img")
+    .forEach(i => i.classList.remove("selected"));
+  document.querySelectorAll(".mechanism path")
+    .forEach(p => p.classList.remove("selected"));
+
+  img.classList.add("selected");
+  selectedImg = img;
+  selectedArrow = null;
+}
+
+function selectArrow(path) {
+  document.querySelectorAll(".step img")
+    .forEach(i => i.classList.remove("selected"));
+  document.querySelectorAll(".mechanism path")
+    .forEach(p => p.classList.remove("selected"));
+
+  path.classList.add("selected");
+  selectedArrow = path;
+  selectedImg = null;
+}
+
+/* ---------- Send molecule ---------- */
+function sendToCanvas() {
+  if (!selectedImg) {
+    alert("Click an image slot first");
+    return;
+  }
+
+  const mol = editor.getChemObj();
+  if (!mol) {
+    alert("Draw a molecule first");
+    return;
+  }
+
+  saveState();
+  const smiles = Kekule.IO.saveFormatData(mol, "smi");
+  render(smiles, selectedImg);
+}
+
+/* ---------- Add step ---------- */
+function addStep() {
+  saveState();
+
+  const step = document.createElement("div");
+  step.className = "step";
+
+  step.innerHTML = `
+    <img>
+    <div class="arrowBlock">
+      <input placeholder="Reagent">
+      <svg width="140" height="40">
+        <line x1="0" y1="20" x2="120" y2="20"
+          stroke="black" stroke-width="2"/>
+        <polygon points="120,15 140,20 120,25" fill="black"/>
+      </svg>
+      <input placeholder="Solvent">
+    </div>
+    <img>
+
+    <svg class="mechanism" width="700" height="250">
+      <defs>
+        <marker id="arrowhead" markerWidth="10" markerHeight="7"
+          refX="10" refY="3.5" orient="auto">
+          <polygon points="0 0, 10 3.5, 0 7" fill="black"/>
+        </marker>
+      </defs>
+    </svg>
+  `;
+
+  document.getElementById("reactionCanvas").appendChild(step);
+  reattachHandlers();
+}
+
+/* ---------- Arrow mode ---------- */
+function enableArrowMode() {
+  arrowMode = true;
+  arrowStart = null;
+  
+}
+
+function stepClickHandler(e) {
+  if (!arrowMode) return;
+
+  const svg = e.currentTarget.querySelector("svg.mechanism");
+  const rect = svg.getBoundingClientRect();
+
+  const x = e.clientX - rect.left;
+  const y = e.clientY - rect.top;
+
+  if (!arrowStart) {
+    arrowStart = { x, y };
+  } else {
+    saveState();
+    drawArrow(svg, arrowStart, { x, y });
+    arrowMode = false;
+    arrowStart = null;
+  }
+}
+
+function drawArrow(svg, start, end) {
+  const cx = (start.x + end.x) / 2;
+  const cy = Math.min(start.y, end.y) - 40;
+
+  const path = document.createElementNS(
+    "http://www.w3.org/2000/svg", "path"
+  );
+
+  path.setAttribute(
+    "d",
+    `M ${start.x} ${start.y} Q ${cx} ${cy} ${end.x} ${end.y}`
+  );
+  path.setAttribute("fill", "none");
+  path.setAttribute("stroke", "black");
+  path.setAttribute("stroke-width", "2");
+  path.setAttribute("marker-end", "url(#arrowhead)");
+
+  path.onclick = () => selectArrow(path);
+  svg.appendChild(path);
+}
+
+/* ---------- Delete ---------- */
+function deleteSelected() {
+  if (selectedArrow) {
+    saveState();
+    selectedArrow.remove();
+    selectedArrow = null;
+  }
+}
+
+/* ---------- Undo / Redo ---------- */
+function undo() {
+  if (!undoStack.length) return;
+  redoStack.push(reactionCanvas.innerHTML);
+  restoreState(undoStack.pop());
+}
+
+function redo() {
+  if (!redoStack.length) return;
+  undoStack.push(reactionCanvas.innerHTML);
+  restoreState(redoStack.pop());
+}
+
+/* ---------- Reattach handlers ---------- */
+function reattachHandlers() {
+  document.querySelectorAll(".step").forEach(step => {
+    step.onclick = stepClickHandler;
+  });
+
+  document.querySelectorAll(".step img").forEach(img => {
+    img.onclick = () => selectImg(img);
+  });
+
+  document.querySelectorAll(".mechanism path").forEach(path => {
+    path.onclick = () => selectArrow(path);
+  });
+}
+
+/* ---------- Init ---------- */
+addStep();
+function drawArrow(svg, start, end) {
+  const path = document.createElementNS(
+    "http://www.w3.org/2000/svg", "path"
+  );
+
+  path.setAttribute(
+    "d",
+    `M ${start.x} ${start.y} Q ${(start.x+end.x)/2} ${start.y-40} ${end.x} ${end.y}`
+  );
+
+  path.dataset.start = JSON.stringify(start);
+  path.dataset.end = JSON.stringify(end);
+
+  path.setAttribute("stroke", "black");
+  path.setAttribute("fill", "none");
+  path.setAttribute("marker-end", "url(#arrowhead)");
+
+  path.onclick = () => selectArrow(path);
+  svg.appendChild(path);
+}
+
+function getCurrentReactionData(step) {
+  return {
+    reactant: step.querySelector("img").dataset.smiles,
+    reagent: step.querySelector("input[placeholder='Reagent']").value,
+    solvent: step.querySelector("input[placeholder='Solvent']").value
+  };
+}
+
+function drawSuggestedArrow(step, arrow) {
+  const svg = step.querySelector("svg.mechanism");
+
+  // TEMP mapping (center-left to center-right)
+  const start = { x: 200, y: 140 };
+  const end   = { x: 350, y: 140 };
+
+  drawArrow(svg, start, end);
+}
+
+async function suggestMechanism() {
+  const step = document.querySelector(".step"); // first step for now
+  if (!step) {
+    alert("No reaction step found");
+    return;
+  }
+
+  const data = getCurrentReactionData(step);
+
+  if (!data.reactant) {
+    alert("No reactant SMILES found. Send molecule first.");
+    return;
+  }
+
+  const res = await fetch("http://localhost:8000/suggest", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      reactant: data.reactant,
+      reagent: data.reagent
+    })
+  });
+
+  if (!res.ok) {
+    alert("Suggest failed");
+    return;
+  }
+
+  const result = await res.json();
+  console.log("Suggested arrows:", result.arrows);
+
+  result.arrows.forEach(arrow => {
+    drawSuggestedArrow(step, arrow);
+  });
+}
+
+
+</script>
+
+</body>
+</html>
