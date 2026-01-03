@@ -110,21 +110,8 @@ function selectArrow(path) {
 
 /* ---------- Send molecule ---------- */
 function sendToCanvas() {
-  if (!selectedImg) {
-    alert("Click an image slot first");
-    return;
-  }
-
-  const mol = editor.getChemObj();
-  if (!mol) {
-    alert("Draw a molecule first");
-    return;
-  }
-
-  saveState();
   const smiles = Kekule.IO.saveFormatData(mol, "smi");
   render(smiles, selectedImg);
-}
 
 /* ---------- Add step ---------- */
 function addStep() {
