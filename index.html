@@ -320,6 +320,17 @@ async function suggestMechanism() {
   });
 }
 
+ fetch("https://chem-backend-kskc.onrender.com/analyze", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ smiles: smilesFromKekule })
+})
+.then(res => res.json())
+.then(data => {
+  console.log(data); // use this to highlight atoms / add mechanism steps
+});
+
+
 
 </script>
 
