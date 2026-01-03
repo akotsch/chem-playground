@@ -59,11 +59,12 @@ function restoreState(state) {
 
 /* ---------- RDKit render ---------- */
 async function render(smiles, imgEl) {
-  const res = await fetch("http://localhost:8000/render", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ smiles })
-  });
+  const res = await fetch("https://chem-backend-kskc.onrender.com/render", {
+   method: "POST",
+   headers: { "Content-Type": "application/json" },
+   body: JSON.stringify({ smiles })
+   });
+
 
   if (!res.ok) {
     alert("Render failed");
