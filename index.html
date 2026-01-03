@@ -58,23 +58,26 @@ function restoreState(state) {
 
 /* ---------- RDKit render ---------- */
 async function render(smiles, imgEl) {
-  const res = await fetch(`${BACKEND_URL}/render`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ smiles })
-  });
+  try {
+    const res = await fetch(`${BACKEND_URL}/render`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ smiles })
+    });
 
-  if (!res.ok) {
-    alert("Render failed");
-    return;
+    if (!res.ok) {
+      alert("Render failed: " + res.statusText);
+      return;
+    }
+
+    const data = await res.json();
+    imgEl.src = "data:image/png;base64," + data.image;
+    imgEl.dataset.atoms = JSON.stringify(data.atoms);
+    imgEl.dataset.bonds = JSON.stringify(data.bonds);
+    imgEl.dataset.smiles = smiles;
+  } catch (err) {
+    alert("Render failed: " + err);
   }
-
-  const data = await res.json();
-  imgEl.src = "data:image/png;base64," + data.image;
-
-  imgEl.dataset.atoms = JSON.stringify(data.atoms);
-  imgEl.dataset.bonds = JSON.stringify(data.bonds);
-  imgEl.dataset.smiles = smiles;
 }
 
 /* ---------- Selection ---------- */
@@ -126,8 +129,7 @@ function addStep() {
     <div class="arrowBlock">
       <input placeholder="Reagent">
       <svg width="140" height="40">
-        <line x1="0" y1="20" x2="120" y2="20"
-          stroke="black" stroke-width="2"/>
+        <line x1="0" y1="20" x2="120" y2="20" stroke="black" stroke-width="2"/>
         <polygon points="120,15 140,20 120,25" fill="black"/>
       </svg>
       <input placeholder="Solvent">
@@ -185,29 +187,11 @@ function drawArrow(svg, start, end) {
   svg.appendChild(path);
 }
 
-/* ---------- Delete ---------- */
-function deleteSelected() {
-  if (selectedArrow) {
-    saveState();
-    selectedArrow.remove();
-    selectedArrow = null;
-  }
-}
+/* ---------- Delete / Undo / Redo ---------- */
+function deleteSelected() { if (selectedArrow) { saveState(); selectedArrow.remove(); selectedArrow = null; } }
+function undo() { if (!undoStack.length) return; redoStack.push(document.getElementById("reactionCanvas").innerHTML); restoreState(undoStack.pop()); }
+function redo() { if (!redoStack.length) return; undoStack.push(document.getElementById("reactionCanvas").innerHTML); restoreState(redoStack.pop()); }
 
-/* ---------- Undo / Redo ---------- */
-function undo() {
-  if (!undoStack.length) return;
-  redoStack.push(document.getElementById("reactionCanvas").innerHTML);
-  restoreState(undoStack.pop());
-}
-
-function redo() {
-  if (!redoStack.length) return;
-  undoStack.push(document.getElementById("reactionCanvas").innerHTML);
-  restoreState(redoStack.pop());
-}
-
-/* ---------- Reattach handlers ---------- */
 function reattachHandlers() {
   document.querySelectorAll(".step").forEach(step => step.onclick = stepClickHandler);
   document.querySelectorAll(".step img").forEach(img => img.onclick = () => selectImg(img));
@@ -217,20 +201,14 @@ function reattachHandlers() {
 /* ---------- Mechanism suggestions ---------- */
 async function suggestMechanism() {
   const step = document.querySelector(".step");
-  if (!step) {
-    alert("No reaction step found");
-    return;
-  }
+  if (!step) return alert("No reaction step found");
 
   const data = {
     reactant: step.querySelector("img").dataset.smiles,
     reagent: step.querySelector("input[placeholder='Reagent']").value
   };
 
-  if (!data.reactant) {
-    alert("No reactant SMILES found. Send molecule first.");
-    return;
-  }
+  if (!data.reactant) return alert("No reactant SMILES found");
 
   const res = await fetch(`${BACKEND_URL}/suggest`, {
     method: "POST",
@@ -238,10 +216,7 @@ async function suggestMechanism() {
     body: JSON.stringify(data)
   });
 
-  if (!res.ok) {
-    alert("Suggest failed");
-    return;
-  }
+  if (!res.ok) return alert("Suggest failed");
 
   const result = await res.json();
   result.arrows.forEach(arrow => drawSuggestedArrow(step, arrow));
@@ -249,15 +224,11 @@ async function suggestMechanism() {
 
 function drawSuggestedArrow(step, arrow) {
   const svg = step.querySelector("svg.mechanism");
-  const start = { x: 200, y: 140 }; // TEMP
-  const end = { x: 350, y: 140 };   // TEMP
-  drawArrow(svg, start, end);
+  drawArrow(svg, { x: 200, y: 140 }, { x: 350, y: 140 }); // TEMP arrow
 }
 
 /* ---------- Init ---------- */
 addStep();
-
 </script>
-
 </body>
 </html>
